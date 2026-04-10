@@ -6,7 +6,7 @@ from datasets import load_dataset, concatenate_datasets
 config = {
     'model_id': 'vohuutridung/qwen3-1.7b-legal-pretrain',
     'max_length': 1024,
-    'shot_per_task': 64,
+    'shot_per_task': 8,
     'tasks': [
         {
             'name': 'nli',
