@@ -65,12 +65,16 @@ def compute_all_task_vectors(
 
     Memory note: pretrained_params is extracted once and reused for all tasks.
     Each finetuned_params dict is discarded after tau is computed.
+    All tensors are pinned to CPU so the result can be stored without GPU cost.
     """
-    pretrained_params = extract_params(pretrained_model)
+    # Pin to CPU regardless of which device pretrained_model is on.
+    pretrained_params = {
+        name: t.cpu() for name, t in extract_params(pretrained_model).items()
+    }
 
     task_vectors = []
     for i, finetuned_model in enumerate(finetuned_models):
-        finetuned_params = extract_params(finetuned_model)
+        finetuned_params = extract_params(finetuned_model)  # always CPU (teachers stay on CPU)
         tau = compute_task_vector(pretrained_params, finetuned_params)
         task_vectors.append(tau)
         # Free the per-model snapshot immediately — tau is all we need.
@@ -93,11 +97,19 @@ def compute_layer_task_vectors(
     This is the key technique from the reference code's progressive/sequential
     approach: keep only what the current training step needs.
     """
-    pretrained_layer_params = extract_layer_params(pretrained_model, layer_name)
+    # pretrained_model may be on GPU; finetuned_models stay on CPU.
+    # Task vectors are weight diffs stored for the entire training run — keep
+    # them on CPU so they never bloat GPU memory.  get_merged_param already
+    # moves them to the training device lazily via .to(device).
+    pretrained_layer_params = {
+        name: t.cpu()
+        for name, t in extract_layer_params(pretrained_model, layer_name).items()
+    }
 
     layer_task_vectors = []
     for finetuned_model in finetuned_models:
         finetuned_layer_params = extract_layer_params(finetuned_model, layer_name)
+        # Both dicts are now on CPU — subtraction is device-safe.
         tau = {
             name: finetuned_layer_params[name] - pretrained_layer_params[name]
             for name in pretrained_layer_params
@@ -114,21 +126,25 @@ def get_merged_param(
         coefficients,  # MergingCoefficients — avoid circular import
 ) -> torch.Tensor:
     """
-    Compute merged parameter value for one parameter:
+    Compute merged parameter value for one parameter, entirely on CPU:
         theta_merged[name] = theta_0[name] + sum_i lambda_i[name] * tau_i[name]
 
     Element-wise lambda (◦ in the paper) is a pointwise multiply, not a scalar.
 
-    Memory note: device is resolved from lambda (already on GPU). pretrained and
-    tau tensors are moved with .to(device) lazily — no clone is made here since
-    pretrained_params / task_vectors are already detached snapshots.
+    Computation stays on CPU because:
+    - coefficients (lambda) live on CPU — never moved to GPU.
+    - pretrained_params and task_vectors live on CPU.
+    - The caller (get_layer_merged_params) moves only the final compact merged
+      tensor to GPU via .to(device), which IS differentiable in PyTorch autograd.
+      Gradients flow: loss (GPU) → merged_gpu → merged_cpu → lambda (CPU).
+      CPU Adam then updates lambda with no GPU allocations for moment tensors.
     """
-    device = coefficients.get(task_idx=0, param_name=param_name).device
-    # Use .to(device) without .clone() — we only read these, never modify them.
-    merged = pretrained_params[param_name].to(device)
+    # .cpu() is a no-op when tensors are already on CPU; defensive for callers
+    # that may extract params from a GPU model (e.g. compute_all_task_vectors).
+    merged = pretrained_params[param_name].cpu()
 
     for i, tau in enumerate(task_vectors):
-        lambda_i = coefficients.get(task_idx=i, param_name=param_name)
-        merged = merged + lambda_i * tau[param_name].to(device)
+        lambda_i = coefficients.get(task_idx=i, param_name=param_name)  # CPU nn.Parameter
+        merged = merged + lambda_i * tau[param_name].cpu()  # pure CPU arithmetic
 
-    return merged
+    return merged  # CPU tensor; gradient path: merged → lambda via CPU add/mul ops

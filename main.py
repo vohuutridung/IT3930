@@ -26,34 +26,33 @@ tokenizer = AutoTokenizer.from_pretrained("vohuutridung/qwen3-1.7b-legal-pretrai
 MODEL_DTYPE = torch.float16
 CPU = torch.device("cpu")
 
+print("Loading models.")
 pretrained = AutoModelForCausalLM.from_pretrained(
     "vohuutridung/qwen3-1.7b-legal-pretrain",
-    dtype=MODEL_DTYPE,
-    # stays on CPU until prodistill() moves it to GPU
+    torch_dtype=MODEL_DTYPE,
 )
 
 ft_nli = AutoModelForCausalLM.from_pretrained(
     "vohuutridung/qwen3-1.7b-legal-pretrain-nli",
-    dtype=MODEL_DTYPE,
-    map_location=CPU,    # teacher stays on CPU for memory efficiency
+    torch_dtype=MODEL_DTYPE,
+    device_map="cpu",
 )
 
 ft_mcq = AutoModelForCausalLM.from_pretrained(
     "vohuutridung/qwen3-1.7b-legal-pretrain-mcq",
-    dtype=MODEL_DTYPE,
-    map_location=CPU,
+    torch_dtype=MODEL_DTYPE,
+    device_map="cpu",
 )
 
 ft_sqa = AutoModelForCausalLM.from_pretrained(
     "vohuutridung/qwen3-1.7b-legal-pretrain-sqa",
-    dtype=MODEL_DTYPE,
-    map_location=CPU,
+    torch_dtype=MODEL_DTYPE,
+    device_map="cpu",
 )
 
 # ── Dataset & DataLoader ──────────────────────────────────────────────────────
 # FewShotPipeline.build() now returns list[HF Dataset], one per task.
-# MultiTaskDataLoader samples same-task batches, tagging each with source_loader
-# (= task_id) so the training loop can pick the right teacher model.
+# MultiTaskDataLoader samples same-task batches, tagging each with source_loader (= task_id) so the training loop can pick the right teacher model.
 pipeline = FewShotPipeline(config)
 task_datasets = pipeline.build()   # list[Dataset], length T
 
@@ -61,7 +60,7 @@ task_datasets = pipeline.build()   # list[Dataset], length T
 for ds in task_datasets:
     ds.set_format(type="torch", columns=["input_ids", "attention_mask"])
 
-loader = MultiTaskDataLoader(task_datasets, batch_size=4)
+loader = MultiTaskDataLoader(task_datasets, batch_size=1)
 
 # ── Layer names ───────────────────────────────────────────────────────────────
 # Ordered list of submodule names: embedding layer first, then transformer blocks.
@@ -72,6 +71,7 @@ for i in range(pretrained.config.num_hidden_layers):
 # ── Training ──────────────────────────────────────────────────────────────────
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+print("Start training.")
 coefficients = prodistill(
     pretrained_model=pretrained,
     finetuned_models=[ft_nli, ft_mcq, ft_sqa],

@@ -139,28 +139,55 @@ FORMAT_REGISTRY = {
 }
 
 
+import random
+import torch
+from torch.utils.data import DataLoader
+
+
 class MultiTaskDataLoader:
     def __init__(self, datasets, batch_size):
+        self.datasets = datasets
+        self.batch_size = batch_size
+
         self.loaders = [
-            DataLoader(ds, batch_size=batch_size, shuffle=True) for ds in datasets
+            DataLoader(ds, batch_size=batch_size, shuffle=True)
+            for ds in datasets
         ]
-        self.iters = [iter(loader) for loader in self.loaders]
-        self.num_tasks = len(datasets)
+
+        # số batch mỗi task
+        self.lengths = [len(loader) for loader in self.loaders]
+
+        # tổng số batch
+        self.total_batches = sum(self.lengths)
+
+    def __len__(self):
+        return self.total_batches
 
     def __iter__(self):
+        # tạo iterator mới mỗi epoch
+        self.iters = [iter(loader) for loader in self.loaders]
+
+        # tạo schedule các task (shuffle ở level batch)
+        self.task_schedule = []
+        for task_id, num_batches in enumerate(self.lengths):
+            self.task_schedule.extend([task_id] * num_batches)
+
+        random.shuffle(self.task_schedule)
+
+        self.idx = 0
         return self
 
     def __next__(self):
-        task_id = random.randint(0, self.num_tasks - 1)
+        if self.idx >= self.total_batches:
+            raise StopIteration
 
-        try:
-            batch = next(self.iters[task_id])
-        except StopIteration:
-            self.iters[task_id] = iter(self.loaders[task_id])
-            batch = next(self.iters[task_id])
+        task_id = self.task_schedule[self.idx]
+        self.idx += 1
+
+        batch = next(self.iters[task_id])
 
         return {
-            "data": batch['input_ids'],
-            "attention_mask": batch['attention_mask'],
-            "source_loader": torch.tensor(task_id)
+            "data": batch["input_ids"],
+            "attention_mask": batch["attention_mask"],
+            "source_loader": torch.tensor(task_id),
         }
