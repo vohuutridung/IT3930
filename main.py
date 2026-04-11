@@ -1,55 +1,99 @@
+"""
+main.py — ProDistill entry point.
+
+Memory strategy:
+  - All models are loaded in float16 to halve parameter memory.
+  - Finetuned models are kept on CPU; prodistill() accesses their layers
+    individually without ever moving the full model to GPU.
+  - Only the pretrained model (theta_0) is moved to GPU inside prodistill().
+  - Task vectors are computed layer-by-layer, so the full O(T × model_size)
+    tensor table is never resident in GPU memory simultaneously.
+"""
+
 import torch
-from torch.utils.data import DataLoader
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from training_loop import prodistill, build_merged_model
 from task_vector import compute_all_task_vectors
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from data import FewShotPipeline, config
+from data import FewShotPipeline, MultiTaskDataLoader, config
 
+# ── Tokenizer ─────────────────────────────────────────────────────────────────
 tokenizer = AutoTokenizer.from_pretrained("vohuutridung/qwen3-1.7b-legal-pretrain")
 
-pretrained = AutoModelForCausalLM.from_pretrained("vohuutridung/qwen3-1.7b-legal-pretrain", torch_dtype=torch.float16)
-ft_nli     = AutoModelForCausalLM.from_pretrained("vohuutridung/qwen3-1.7b-legal-pretrain-nli", torch_dtype=torch.float16)
-ft_mcq     = AutoModelForCausalLM.from_pretrained("vohuutridung/qwen3-1.7b-legal-pretrain-mcq", torch_dtype=torch.float16)
-ft_sqa     = AutoModelForCausalLM.from_pretrained("vohuutridung/qwen3-1.7b-legal-pretrain-sqa", torch_dtype=torch.float16)
+# ── Model loading ─────────────────────────────────────────────────────────────
+# float16 halves parameter memory vs float32.
+# Finetuned models load to CPU — prodistill() will only pull per-layer slices.
+MODEL_DTYPE = torch.float16
+CPU = torch.device("cpu")
 
+pretrained = AutoModelForCausalLM.from_pretrained(
+    "vohuutridung/qwen3-1.7b-legal-pretrain",
+    dtype=MODEL_DTYPE,
+    # stays on CPU until prodistill() moves it to GPU
+)
+
+ft_nli = AutoModelForCausalLM.from_pretrained(
+    "vohuutridung/qwen3-1.7b-legal-pretrain-nli",
+    dtype=MODEL_DTYPE,
+    map_location=CPU,    # teacher stays on CPU for memory efficiency
+)
+
+ft_mcq = AutoModelForCausalLM.from_pretrained(
+    "vohuutridung/qwen3-1.7b-legal-pretrain-mcq",
+    dtype=MODEL_DTYPE,
+    map_location=CPU,
+)
+
+ft_sqa = AutoModelForCausalLM.from_pretrained(
+    "vohuutridung/qwen3-1.7b-legal-pretrain-sqa",
+    dtype=MODEL_DTYPE,
+    map_location=CPU,
+)
+
+# ── Dataset & DataLoader ──────────────────────────────────────────────────────
+# FewShotPipeline.build() now returns list[HF Dataset], one per task.
+# MultiTaskDataLoader samples same-task batches, tagging each with source_loader
+# (= task_id) so the training loop can pick the right teacher model.
 pipeline = FewShotPipeline(config)
-hf_dataset = pipeline.build()
+task_datasets = pipeline.build()   # list[Dataset], length T
 
-def make_loader(task_id: int, batch_size: int = 1):
-    task_ds = hf_dataset.filter(lambda x: x['task_id'] == task_id)
-    task_ds.set_format(type='torch', columns=['input_ids', 'attention_mask'])
-    return DataLoader(task_ds, batch_size=batch_size, shuffle=True)
+# Set torch format on each per-task dataset before passing to the loader.
+for ds in task_datasets:
+    ds.set_format(type="torch", columns=["input_ids", "attention_mask"])
 
-# task_id 0 = nli, 1 = mcq, 2 = sqa  (matches config['tasks'] order)
-loader_nli = make_loader(0)
-loader_mcq = make_loader(1)
-loader_sqa = make_loader(2)
+loader = MultiTaskDataLoader(task_datasets, batch_size=4)
 
-# loaders order must match finetuned_models order
-loaders = [loader_nli, loader_mcq, loader_sqa]
-
-# Build layer names for the pretrained model
-layer_names = []
-layer_names.append("model.embed_tokens")
-num_layers = pretrained.config.num_hidden_layers
-for i in range(num_layers):
+# ── Layer names ───────────────────────────────────────────────────────────────
+# Ordered list of submodule names: embedding layer first, then transformer blocks.
+layer_names: list[str] = ["model.embed_tokens"]
+for i in range(pretrained.config.num_hidden_layers):
     layer_names.append(f"model.layers.{i}")
+
+# ── Training ──────────────────────────────────────────────────────────────────
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 coefficients = prodistill(
     pretrained_model=pretrained,
     finetuned_models=[ft_nli, ft_mcq, ft_sqa],
-    dataloaders=loaders,
+    loader=loader,
     layer_names=layer_names,
-    num_epochs=20,        # 20 epochs per layer (paper default)
-    lr=0.1,               # paper default
+    num_epochs=20,    # paper default: 20 epochs per layer
+    lr=0.1,           # paper default
     verbose=True,
-    device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+    device=device,
 )
-print('Training completed.')
+print("Training completed.")
 
-task_vectors = compute_all_task_vectors(pretrained, [ft_nli, ft_mcq, ft_sqa])
+# ── Build merged model ────────────────────────────────────────────────────────
+# Compute full task vectors once for final weight assembly.
+with torch.no_grad():
+    task_vectors = compute_all_task_vectors(pretrained, [ft_nli, ft_mcq, ft_sqa])
+
 merged_model = build_merged_model(pretrained, task_vectors, coefficients)
 
+# ── Inference sanity check ────────────────────────────────────────────────────
 merged_model.eval()
-inputs = tokenizer("Your input here", return_tensors="pt")
-output = merged_model(**inputs)
+inputs = tokenizer("Your input here", return_tensors="pt").to(device)
+with torch.no_grad():
+    output = merged_model(**inputs)
+print("Inference OK — output shape:", output.logits.shape)

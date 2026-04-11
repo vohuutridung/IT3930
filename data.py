@@ -1,6 +1,9 @@
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
-from datasets import load_dataset, concatenate_datasets
+from datasets import load_dataset
+import random
+from torch.utils.data import DataLoader
+import torch
 
 
 config = {
@@ -68,22 +71,19 @@ class FewShotPipeline:
         all_ds = []
 
         for i, task in enumerate(self.config['tasks']):
-            print(f'loading dataset {task['name']}...')
+            task_name = task['name']  # avoid nested quotes inside f-string (Python < 3.12)
+            print(f'loading dataset {task_name}...')
             ds = self.load_ds(task)
 
-            print(f'formatting dataset {task['name']}...')
+            print(f'formatting dataset {task_name}...')
             ds = self.format_ds(ds, task, i)
 
-            print(f'tokenizing dataset {task['name']}...')
+            print(f'tokenizing dataset {task_name}...')
             ds = self.tokenize_ds(ds)
 
             all_ds.append(ds)
         
-        merged = concatenate_datasets(all_ds).shuffle(seed=42)
-        merged = merged.remove_columns('text')
-
-        return merged # format: Dataset['task_id', 'input_ids', 'attention_mask']
-
+        return all_ds  # list[Dataset] — one Dataset per task, columns: ['task_id', 'input_ids', 'attention_mask']
 
 def format_nli(example):
     return (f"""
@@ -139,8 +139,28 @@ FORMAT_REGISTRY = {
 }
 
 
+class MultiTaskDataLoader:
+    def __init__(self, datasets, batch_size):
+        self.loaders = [
+            DataLoader(ds, batch_size=batch_size, shuffle=True) for ds in datasets
+        ]
+        self.iters = [iter(loader) for loader in self.loaders]
+        self.num_tasks = len(datasets)
 
-if __name__ == "__main__":
-    pipeline = FewShotPipeline(config)
-    hfdataset = pipeline.build()
-    print(hfdataset[0])
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        task_id = random.randint(0, self.num_tasks - 1)
+
+        try:
+            batch = next(self.iters[task_id])
+        except StopIteration:
+            self.iters[task_id] = iter(self.loaders[task_id])
+            batch = next(self.iters[task_id])
+
+        return {
+            "data": batch['input_ids'],
+            "attention_mask": batch['attention_mask'],
+            "source_loader": torch.tensor(task_id)
+        }
