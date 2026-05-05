@@ -12,9 +12,9 @@ load_dotenv()
 class LLMDataLoader:
     def __init__(self, tokenizer: AutoTokenizer):
         self.tokenizer = tokenizer
-        self.nli_path = os.getenv('task1_data')
-        self.mcq_path = os.getenv('task2_data')
-        self.sqa_path = os.getenv('task3_data')
+        self.task1_path = os.getenv('task1_path')
+        self.task2_path = os.getenv('task2_path')
+        self.task3_path = os.getenv('task3_path')
         self.max_len = 0
 
     def encode(self, examples: dict, max_seq_length: int = 512):
@@ -33,17 +33,26 @@ class LLMDataLoader:
 
         return inputs
 
-    def load_dataset(self, dataset_name: str, max_seq_length: int = 256, val_shot: int = 64):
+    def load_dataset(self, dataset_name: str, max_seq_length: int = 256, val_shot: int = 64, num_validation_data: int = 500):
         # train num is 64, others is test
         if dataset_name == 'nli':
-            data_df = pd.read_json(self.nli_path, lines=True)
+            data_df = pd.read_json(self.task1_path, lines=True)
             data_df['instruction'] = data_df.apply(format_nli, axis=1)
         elif dataset_name == 'mcq':
-            data_df = pd.read_json(self.mcq_path, lines=True)
+            data_df = pd.read_json(self.task2_path, lines=True)
             data_df['instruction'] = data_df.apply(format_mcq, axis=1)
         elif dataset_name == 'sqa':
-            data_df = pd.read_json(self.sqa_path, lines=True)
+            data_df = pd.read_json(self.task3_path, lines=True)
             data_df['instruction'] = data_df.apply(format_sqa, axis=1)
+        elif dataset_name == 'cnn':
+            data_df = pd.read_json(self.task1_path, lines=True)
+            data_df = data_df.rename(columns={"article": "instruction"})
+        elif dataset_name == 'arxiv':
+            data_df = pd.read_json(self.task2_path, lines=True)
+            data_df = data_df.rename(columns={"article": "instruction"})
+        elif dataset_name == 'mediasum':
+            data_df = pd.read_json(self.task3_path, lines=True)
+            data_df = data_df.rename(columns={"document": "instruction"})
         else:
             raise ValueError(f'Unknown dataset {dataset_name}')
 
@@ -53,7 +62,8 @@ class LLMDataLoader:
         permuted_indices = np.random.RandomState(seed=0).permutation(len(dataset)).tolist()
         num_train_data = val_shot
         train_dataset = Subset(dataset=dataset, indices=permuted_indices[:num_train_data])
-        test_dataset = Subset(dataset=dataset, indices=permuted_indices[num_train_data:])
+        # this is the validation set, get last num_validation_data samples for validation set
+        test_dataset = Subset(dataset=dataset, indices=permuted_indices[-num_validation_data:])
         return train_dataset, test_dataset
         
         
