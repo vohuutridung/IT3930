@@ -4,23 +4,28 @@ import json
 import datasets
 import numpy as np
 from torch.utils.data import Subset
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 class LLMDataLoader:
     def __init__(self, tokenizer: AutoTokenizer):
         self.tokenizer = tokenizer
-        self.nli_path = 'legal_data/nli.jsonl'
-        self.mcq_path = 'legal_data/mcq.jsonl'
-        self.sqa_path = 'legal_data/sqa.jsonl'
+        self.nli_path = os.getenv('task1_data')
+        self.mcq_path = os.getenv('task2_data')
+        self.sqa_path = os.getenv('task3_data')
         self.max_len = 0
 
     def encode(self, examples: dict, max_seq_length: int = 512):
+        # Here i set max_length = tokenizer.model_max_length in summarization tasks
         inputs = {}
         ins_token = self.tokenizer(
             examples['instruction'],
-            max_length=max_seq_length,
-            padding='max_length',
+            max_length=131072,
+            padding=True,
             truncation=True,
-            return_tensors='pt'
+            return_tensors='pt',
         )
         inputs['input_ids'] = ins_token['input_ids']
         inputs['attention_mask'] = ins_token['attention_mask']

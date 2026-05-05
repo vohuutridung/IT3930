@@ -1,3 +1,5 @@
+# Download model from Hugging Face and split into layers
+
 from transformers import AutoModelForCausalLM
 import argparse
 import os

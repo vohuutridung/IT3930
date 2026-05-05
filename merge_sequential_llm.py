@@ -1,3 +1,6 @@
+# legal task order: nli -> mcq -> sqa
+# summarization task order: cnn -> arxiv -> mediasum
+
 import os
 import argparse
 import torch
@@ -23,15 +26,25 @@ task_model_mapping_dict = {
     'nli': 'qwen3-1.7b-legal-pretrain-nli',
     'mcq': 'qwen3-1.7b-legal-pretrain-mcq',
     'sqa': 'qwen3-1.7b-legal-pretrain-sqa',
+    'cnn': 'qwen3-1.7b-summarization-cnn',
+    'arxiv': 'qwen3-1.7b-summarization-arxiv',
+    'mediasum': 'qwen3-1.7b-summarization-mediasum',
 }
 finetuned_model_backbone_mapping_dict = {
     'qwen3-1.7b-legal-pretrain-nli': 'qwen3-1.7b-legal-pretrain',
     'qwen3-1.7b-legal-pretrain-mcq': 'qwen3-1.7b-legal-pretrain',
     'qwen3-1.7b-legal-pretrain-sqa': 'qwen3-1.7b-legal-pretrain',
+    'qwen3-1.7b-summarization-cnn': 'qwen3-1.7b',
+    'qwen3-1.7b-summarization-arxiv': 'qwen3-1.7b',
+    'qwen3-1.7b-summarization-mediasum': 'qwen3-1.7b',
 }
-finetuned_models = ['qwen3-1.7b-legal-pretrain-nli', 'qwen3-1.7b-legal-pretrain-mcq', 'qwen3-1.7b-legal-pretrain-sqa']
+# finetuned_models = ['qwen3-1.7b-legal-pretrain-nli', 'qwen3-1.7b-legal-pretrain-mcq', 'qwen3-1.7b-legal-pretrain-sqa']
+finetuned_models = ['qwen3-1.7b-summarization-cnn', 'qwen3-1.7b-summarization-arxiv', 'qwen3-1.7b-summarization-mediasum']
 
 parser = argparse.ArgumentParser('Interface for merging LLMs')
+parser.add_argument('--do_cnn', action='store_true', help='whether to merge cnn model')
+parser.add_argument('--do_arxiv', action='store_true', help='whether to merge arxiv model')
+parser.add_argument('--do_mediasum', action='store_true', help='whether to merge mediasum model')
 parser.add_argument('--do_nli', action='store_true', help='whether to merge nli model')
 parser.add_argument('--do_mcq', action='store_true', help='whether to merge mcq model')
 parser.add_argument('--do_sqa', action='store_true', help='whether to merge sqa model')
@@ -189,12 +202,13 @@ def train(args, lr, epochs, merged_train_loader, load_model_paths):
 if __name__ == '__main__':
     start_time = time.time()
     args.dataset_names = []
-    if args.do_nli:
-        args.dataset_names.append('nli')
-    if args.do_mcq:
-        args.dataset_names.append('mcq')
-    if args.do_sqa:
-        args.dataset_names.append('sqa')
+    if args.do_nli: args.dataset_names.append('nli')
+    if args.do_mcq: args.dataset_names.append('mcq')
+    if args.do_sqa: args.dataset_names.append('sqa')
+    if args.do_cnn: args.dataset_names.append('cnn')
+    if args.do_arxiv: args.dataset_names.append('arxiv')
+    if args.do_mediasum: args.dataset_names.append('mediasum')
+
     args.dataset_name_combined = '_'.join(args.dataset_names)
     args.cache_dir = cache_dir
     args.task_model_mapping_dict = task_model_mapping_dict
