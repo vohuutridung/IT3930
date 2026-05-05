@@ -48,7 +48,7 @@ def del_attr(obj, names):
 
 
 def load_pretrained_model(args):
-    if args.language_model_name == 'qwen3-1.7b-legal-pretrain':
+    if args.language_model_name == 'qwen3-1.7b-legal-pretrain' or args.language_model_name == 'qwen3-1.7b':
         pretrained_model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name_or_path=os.path.join(args.cache_dir, args.language_model_name), device_map=args.device
         )

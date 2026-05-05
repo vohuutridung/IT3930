@@ -1,3 +1,18 @@
+Guide to run (in summarization setting):
+1, Installing packages
+pip install -r requirements.txt
+2, Downloading hf model to local and split to layers
+python3 split_model.py --model_name qwen3-1.7b
+python3 split_model.py --model_name qwen3-1.7b-summarization-cnn
+python3 split_model.py --model_name qwen3-1.7b-summarization-arxiv-full
+python3 split_model.py --model_name qwen3-1.7b-summarization-mediasum
+3, Training
+python3 merge_sequential_llm.py --do_cnn --do_arxiv --do_mediasum 
+4, Merge layers into complete model and upload to hf
+
+
+
+
 NOTE:
 1, trong repo goc, nguoi ta resize model tokens (them token pad) cho mo hinh + tokenizer, nhung toi thi ko.
 2, Tai sao nguoi ta ko luu rotary emb khi split model?

@@ -27,7 +27,7 @@ task_model_mapping_dict = {
     'mcq': 'qwen3-1.7b-legal-pretrain-mcq',
     'sqa': 'qwen3-1.7b-legal-pretrain-sqa',
     'cnn': 'qwen3-1.7b-summarization-cnn',
-    'arxiv': 'qwen3-1.7b-summarization-arxiv',
+    'arxiv': 'qwen3-1.7b-summarization-arxiv-full',
     'mediasum': 'qwen3-1.7b-summarization-mediasum',
 }
 finetuned_model_backbone_mapping_dict = {
@@ -35,11 +35,11 @@ finetuned_model_backbone_mapping_dict = {
     'qwen3-1.7b-legal-pretrain-mcq': 'qwen3-1.7b-legal-pretrain',
     'qwen3-1.7b-legal-pretrain-sqa': 'qwen3-1.7b-legal-pretrain',
     'qwen3-1.7b-summarization-cnn': 'qwen3-1.7b',
-    'qwen3-1.7b-summarization-arxiv': 'qwen3-1.7b',
+    'qwen3-1.7b-summarization-arxiv-full': 'qwen3-1.7b',
     'qwen3-1.7b-summarization-mediasum': 'qwen3-1.7b',
 }
 # finetuned_models = ['qwen3-1.7b-legal-pretrain-nli', 'qwen3-1.7b-legal-pretrain-mcq', 'qwen3-1.7b-legal-pretrain-sqa']
-finetuned_models = ['qwen3-1.7b-summarization-cnn', 'qwen3-1.7b-summarization-arxiv', 'qwen3-1.7b-summarization-mediasum']
+finetuned_models = ['qwen3-1.7b-summarization-cnn', 'qwen3-1.7b-summarization-arxiv-full', 'qwen3-1.7b-summarization-mediasum']
 
 parser = argparse.ArgumentParser('Interface for merging LLMs')
 parser.add_argument('--do_cnn', action='store_true', help='whether to merge cnn model')
@@ -48,10 +48,10 @@ parser.add_argument('--do_mediasum', action='store_true', help='whether to merge
 parser.add_argument('--do_nli', action='store_true', help='whether to merge nli model')
 parser.add_argument('--do_mcq', action='store_true', help='whether to merge mcq model')
 parser.add_argument('--do_sqa', action='store_true', help='whether to merge sqa model')
-parser.add_argument('--language_model_name', type=str, default='qwen3-1.7b-legal-pretrain', help='name of the language model')
+parser.add_argument('--language_model_name', type=str, default='qwen3-1.7b', help='name of the language model')
 parser.add_argument('--merging_method_name', type=str, default='sequential_efficient')
-parser.add_argument('--val_shot', type=int, default=32, help='number of examples sampled from training set for validation')
-parser.add_argument('--batch_size', type=int, default=32, help='batch size')
+parser.add_argument('--val_shot', type=int, default=256, help='number of training examples')
+parser.add_argument('--batch_size', type=int, default=64, help='batch size')
 parser.add_argument('--gpu', type=int, default=0, help='number of gpu to use')
 parser.add_argument("--tag", type=str, default='test', help="tag for distill merging")
 parser.add_argument('--lr', type=float, default=0.1, help='learning rate')
