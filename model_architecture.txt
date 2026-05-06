@@ -7,7 +7,7 @@ python3 split_model.py --model_name qwen3-1.7b-summarization-cnn
 python3 split_model.py --model_name qwen3-1.7b-summarization-arxiv-full
 python3 split_model.py --model_name qwen3-1.7b-summarization-mediasum
 3, Training
-python3 merge_sequential_llm.py --do_cnn --do_arxiv --do_mediasum 
+python3 merge_sequential_llm.py --do_cnn --do_arxiv --do_mediasum
 4, Merge layers into complete model and upload to hf
 
 

@@ -17,12 +17,12 @@ class LLMDataLoader:
         self.task3_path = os.getenv('task3_path')
         self.max_len = 0
 
-    def encode(self, examples: dict, max_seq_length: int = 512):
+    def encode(self, examples: dict):
         # Here i set max_length = tokenizer.model_max_length in summarization tasks
         inputs = {}
         ins_token = self.tokenizer(
             examples['instruction'],
-            max_length=131072,
+            max_length=int(os.getenv('max_length')),
             padding=True,
             truncation=True,
             return_tensors='pt',

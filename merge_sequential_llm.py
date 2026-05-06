@@ -16,7 +16,9 @@ from model_merging_methods.distill_merging_utils import *
 from tqdm import tqdm
 import torch.nn.functional as F
 import shutil
+from dotenv import load_dotenv
 
+load_dotenv()
 
 os.environ['WANDB_DISABLED'] = 'true'
 
@@ -109,7 +111,7 @@ def train(args, lr, epochs, merged_train_loader, load_model_paths):
     # Qwen3 config and all sequences are padded to the same length, so these are identical
     # for every model and every batch.  We pass them explicitly as kwargs to each decoder
     # layer because Qwen3Model no longer stores causal_mask / position_ids as attributes.
-    _seq_len = 512  # matches max_seq_length used in data loading
+    _seq_len = int(os.getenv('max_length'))  # matches max_seq_length used in data loading
     pre_position_ids = torch.arange(_seq_len, device=args.device).unsqueeze(0)  # [1, seq_len]
     _dummy = torch.zeros(1, _seq_len, avg_pre_merged_model.config.hidden_size, device=args.device)
     pre_position_embeddings = avg_pre_merged_model.rotary_emb(_dummy, pre_position_ids)  # (cos, sin)
