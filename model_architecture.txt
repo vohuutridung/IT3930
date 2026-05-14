@@ -1,14 +1,17 @@
 Guide to run (in summarization setting):
-1, Installing packages
+1, 
+git clone https://github.com/vohuutridung/IT3930_ProDistill.git
+cd IT3930_ProDistill
+2, Installing packages
 pip install -r requirements.txt
-2, Downloading hf model to local and split to layers
+3, Downloading hf model to local and split to layers
 python3 split_model.py --model_name qwen3-1.7b
 python3 split_model.py --model_name qwen3-1.7b-summarization-cnn
 python3 split_model.py --model_name qwen3-1.7b-summarization-arxiv-full
 python3 split_model.py --model_name qwen3-1.7b-summarization-mediasum
-3, Training
+4, Training
 python3 merge_sequential_llm.py --do_cnn --do_arxiv --do_mediasum
-4, Merge layers into complete model and upload to hf
+5, Merge layers into complete model and upload to hf
 
 
 
