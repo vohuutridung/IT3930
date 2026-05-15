@@ -258,7 +258,7 @@ if __name__ == '__main__':
 
     trainers, eval_datasets = [], []
     for dataset_name, load_model_path in zip(args.dataset_names, load_model_paths):
-        train_dataset, test_dataset = llm_data_loader.load_dataset(dataset_name=dataset_name, max_seq_length=512, val_shot=args.val_shot)
+        train_dataset, test_dataset = llm_data_loader.load_dataset(dataset_name=dataset_name, val_shot=args.val_shot)
 
         # NOTE: THIS CUSTOMIZED TRAINER IS JUST USED TO GET DATALOADER, NOT TO COMPUTE LOSS OR TRAINING.
         trainer = CustomizedTrainer(
