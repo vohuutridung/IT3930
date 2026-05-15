@@ -50,14 +50,16 @@ parser.add_argument('--do_mediasum', action='store_true', help='whether to merge
 parser.add_argument('--do_nli', action='store_true', help='whether to merge nli model')
 parser.add_argument('--do_mcq', action='store_true', help='whether to merge mcq model')
 parser.add_argument('--do_sqa', action='store_true', help='whether to merge sqa model')
+
+parser.add_argument('--val_shot', type=int, default=256, help='number of training examples')
+parser.add_argument('--batch_size', type=int, default=16, help='batch size')
+parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
+
 parser.add_argument('--language_model_name', type=str, default='qwen3-1.7b', help='name of the language model')
 parser.add_argument('--merging_method_name', type=str, default='sequential_efficient')
-parser.add_argument('--val_shot', type=int, default=256, help='number of training examples')
-parser.add_argument('--batch_size', type=int, default=32, help='batch size')
 parser.add_argument('--gpu', type=int, default=0, help='number of gpu to use')
 parser.add_argument("--tag", type=str, default='test', help="tag for distill merging")
 parser.add_argument('--lr', type=float, default=0.1, help='learning rate')
-parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
 parser.add_argument('--layer_save', type=str, default='./save_layers', help='path to save layers in merging')
 try:
     args = parser.parse_args()

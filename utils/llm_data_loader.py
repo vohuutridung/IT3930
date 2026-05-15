@@ -33,7 +33,7 @@ class LLMDataLoader:
 
         return inputs
 
-    def load_dataset(self, dataset_name: str, max_seq_length: int = 256, val_shot: int = 256, num_validation_data: int = 512):
+    def load_dataset(self, dataset_name: str, val_shot: int = 256, num_validation_data: int = 512):
         # train num is 64, others is test
         if dataset_name == 'nli':
             data_df = pd.read_json(self.task1_path, lines=True)
