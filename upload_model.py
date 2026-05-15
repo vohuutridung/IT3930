@@ -18,7 +18,8 @@ def upload_model(args, username):
     ])
 
     repo_id = f'{username}/{repo_name}'
-    login('HF_TOKEN')
+    HF_TOKEN = os.getenv('HF_TOKEN')
+    login(HF_TOKEN)
     create_repo(repo_id, repo_type="model", exist_ok=True)
 
     readme_path = model_path / 'README.md'

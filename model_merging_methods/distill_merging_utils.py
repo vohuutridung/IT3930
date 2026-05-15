@@ -8,6 +8,11 @@ import json
 import torch.nn as nn
 import copy
 
+# Single source-of-truth for floating-point dtype used everywhere in this file.
+# bfloat16 is preferred: it has the same dynamic range as float32 but uses half
+# the memory, and Ampere+ GPUs execute bf16 ops natively (no accuracy loss vs tf32).
+COMPUTE_DTYPE = torch.bfloat16
+
 
 def check_gpu():
     num_gpus = torch.cuda.device_count()
@@ -50,7 +55,9 @@ def del_attr(obj, names):
 def load_pretrained_model(args):
     if args.language_model_name == 'qwen3-1.7b-legal-pretrain' or args.language_model_name == 'qwen3-1.7b':
         pretrained_model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=os.path.join(args.cache_dir, args.language_model_name), device_map=args.device
+            pretrained_model_name_or_path=os.path.join(args.cache_dir, args.language_model_name),
+            device_map=args.device,
+            torch_dtype=COMPUTE_DTYPE,
         )
         remove_grad(pretrained_model)
     return pretrained_model
@@ -69,7 +76,7 @@ def load_part_model(args, module_name, model_name):
     weight_map = get_weight_map_llm(model_name, args)
     model_path = os.path.join(args.cache_dir, model_name, 'split')
     weight_path = os.path.join(model_path, weight_map[module_name])
-    model = torch.load(weight_path, weights_only=False).to(args.device)
+    model = torch.load(weight_path, weights_only=False).to(device=args.device, dtype=COMPUTE_DTYPE)
     remove_grad(model)
     return model
 
@@ -155,11 +162,11 @@ def transform_data_loader_prelayer_pertask_llm(data_loader, merged_model, models
             inputs = []
 
             # Call embed_tokens directly — the output shape is [batch_size, seq_length, embedding_dim]
-            merged_embed = merged_model.embed_tokens(x['input_ids'])
+            merged_embed = merged_model.embed_tokens(x['input_ids']).to(COMPUTE_DTYPE)
             inputs.append(merged_embed)
 
             model = models[source_loader.item()]
-            task_embed = model.embed_tokens(x['input_ids'])
+            task_embed = model.embed_tokens(x['input_ids']).to(COMPUTE_DTYPE)
             inputs.append(task_embed)
 
             # shape: [num_tasks+1, batch_size, seq_length, embedding_dim] -> [batch_size, num_tasks+1, seq_length, embedding_dim]
@@ -180,12 +187,14 @@ def transform_data_loader_prelayer_pertask_llm(data_loader, merged_model, models
     return new_dataloader
 
 
-def transform_data_loader_layer_pertask_llm(data_loader, merged_model, models, device, pre_position_ids, pre_position_embeddings):
+def transform_data_loader_layer_pertask_llm(data_loader, merged_model, models, device, rotary_emb, hidden_size):
     """
     Pass the hidden states (output of the previous layer) through the current decoder layer
-    to produce inputs for the next layer.  Both merged and finetuned layers receive the same
-    pre_position_ids and pre_position_embeddings (rotary cos/sin) since all models share the
-    same Qwen3 config and sequences are padded to a fixed length.
+    to produce inputs for the next layer.
+
+    Position IDs and rotary (cos, sin) embeddings are computed dynamically from the actual
+    sequence length of each batch, so this function is compatible with dynamic padding
+    (no assumption that all batches share the same sequence length).
     """
     transformed_data = []
 
@@ -198,6 +207,17 @@ def transform_data_loader_layer_pertask_llm(data_loader, merged_model, models, d
 
             source_loader = data['source_loader']
 
+            # ── Dynamic rotary embeddings ──────────────────────────────────────
+            batch_size, seq_len = x.shape[1], x.shape[2]
+            position_ids = torch.arange(seq_len, device=device).unsqueeze(0)  # [1, seq_len]
+            # _dummy must be COMPUTE_DTYPE so rotary_emb outputs cos/sin in the same dtype.
+            _dummy = torch.zeros(batch_size, seq_len, hidden_size, device=device, dtype=COMPUTE_DTYPE)
+            position_embeddings = rotary_emb(_dummy, position_ids)  # (cos, sin) in COMPUTE_DTYPE
+            del _dummy
+
+            # Ensure hidden states are in COMPUTE_DTYPE before feeding into layers.
+            x = x.to(COMPUTE_DTYPE)
+
             # inputs for the next layer
             inputs = []
 
@@ -205,26 +225,27 @@ def transform_data_loader_layer_pertask_llm(data_loader, merged_model, models, d
             output = merged_model(
                 x[0],
                 attention_mask=None,
-                position_ids=pre_position_ids,
-                position_embeddings=pre_position_embeddings,
+                position_ids=position_ids,
+                position_embeddings=position_embeddings,
             )
             inputs.append(output)
+
             idx = source_loader.item()
             model = models[idx]  # get the corresponding finetuned model's layer
             output = model(
                 x[1],
                 attention_mask=None,
-                position_ids=pre_position_ids,
-                position_embeddings=pre_position_embeddings,
+                position_ids=position_ids,
+                position_embeddings=position_embeddings,
             )
             inputs.append(output)
-            
+
             # [num_tasks, batch_size, seq_len, embedding_dim] -> [batch_size, num_tasks, seq_len, embedding_dim]
             inputs = torch.stack(inputs).permute(1, 0, 2, 3).cpu()
 
             # batch size = 1
             transformed_data.append((inputs, source_loader))
-    
+
     new_dataset = TransformedDataDataset(transformed_data)
     new_dataloader = DataLoader(
         new_dataset,
@@ -313,15 +334,17 @@ class MergedModel(nn.Module):
             alpha = nn.ParameterList()
             # 1 alpha for 1 task
             if self.granularity == 'taskwise':
-                alpha.append(nn.Parameter(torch.tensor(0.5), requires_grad=True))
+                # Use COMPUTE_DTYPE so alpha * delta arithmetic stays in bf16.
+                alpha.append(nn.Parameter(torch.tensor(0.5, dtype=COMPUTE_DTYPE), requires_grad=True))
             # 1 alpha for 1 model parameter
             elif self.granularity == 'layerwise':
                 for param in model.parameters():
-                    alpha.append(nn.Parameter(torch.tensor(0.5), requires_grad=True))
+                    alpha.append(nn.Parameter(torch.tensor(0.5, dtype=COMPUTE_DTYPE), requires_grad=True))
             # 1 alpha for each element in a model parameter's tensor
             elif self.granularity == 'elementwise':
                 for param in model.parameters():
-                    alpha.append(nn.Parameter(torch.ones_like(param) * 0.5, requires_grad=True))
+                    # ones_like inherits the param dtype (already COMPUTE_DTYPE after load_part_model).
+                    alpha.append(nn.Parameter(torch.ones_like(param, dtype=COMPUTE_DTYPE) * 0.5, requires_grad=True))
             else:
                 raise NotImplementedError(f'Invalid granularity: {self.granularity}')
             self.alphas.append(alpha)
@@ -337,14 +360,18 @@ class MergedModel(nn.Module):
         """
         merged_param = []
         for idx, (name, pretrained_param) in enumerate(self.pretrained_model.named_parameters()):
-            param = torch.zeros_like(pretrained_param)
+            # Accumulate in COMPUTE_DTYPE to prevent silent float32 promotion
+            # when alpha (bf16 scalar/tensor) multiplies the weight delta.
+            param = torch.zeros_like(pretrained_param, dtype=COMPUTE_DTYPE)
+            pretrained_bf16 = pretrained_param.to(COMPUTE_DTYPE)
             for k in range(len(self.models)):
                 if self.granularity == 'taskwise':
                     alpha = self.alphas[k][0]
                 else:
                     alpha = self.alphas[k][idx]
-                param += alpha * (dict(self.models[k].named_parameters())[name] - pretrained_param)
-            param += pretrained_param
+                task_param = dict(self.models[k].named_parameters())[name].to(COMPUTE_DTYPE)
+                param += alpha * (task_param - pretrained_bf16)
+            param += pretrained_bf16
             merged_param.append(param)
         
         load_weights(self.merged_model, self.names, merged_param)
@@ -357,14 +384,16 @@ class MergedModel(nn.Module):
         """
         merged_param = {}
         for idx, (name, pretrained_param) in enumerate(self.pretrained_model.named_parameters()):
-            param = torch.zeros_like(pretrained_param)
+            param = torch.zeros_like(pretrained_param, dtype=COMPUTE_DTYPE)
+            pretrained_bf16 = pretrained_param.to(COMPUTE_DTYPE)
             for k in range(len(self.models)):
                 if self.granularity == 'taskwise':
                     alpha = self.alphas[k][0]
                 else:
                     alpha = self.alphas[k][idx]
-                param += alpha * (dict(self.models[k].named_parameters())[name] - pretrained_param)
-            param += pretrained_param
+                task_param = dict(self.models[k].named_parameters())[name].to(COMPUTE_DTYPE)
+                param += alpha * (task_param - pretrained_bf16)
+            param += pretrained_bf16
             merged_param[name] = param
 
         return merged_param
