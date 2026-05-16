@@ -2,6 +2,9 @@ import argparse
 from pathlib import Path
 from huggingface_hub import login, create_repo, upload_folder
 import os
+from dotenv import load_dotenv
+
+load_dotenv() 
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
 parser = argparse.ArgumentParser('Interface for uploading merged model to Huggingface!')

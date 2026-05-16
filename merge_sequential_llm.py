@@ -51,9 +51,9 @@ parser.add_argument('--do_nli', action='store_true', help='whether to merge nli 
 parser.add_argument('--do_mcq', action='store_true', help='whether to merge mcq model')
 parser.add_argument('--do_sqa', action='store_true', help='whether to merge sqa model')
 
-parser.add_argument('--val_shot', type=int, default=256, help='number of training examples')
+parser.add_argument('--val_shot', type=int, default=64, help='number of training examples')
 parser.add_argument('--batch_size', type=int, default=16, help='batch size')
-parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
+parser.add_argument('--epochs', type=int, default=50, help='number of epochs')
 
 parser.add_argument('--language_model_name', type=str, default='qwen3-1.7b', help='name of the language model')
 parser.add_argument('--merging_method_name', type=str, default='sequential_efficient')
