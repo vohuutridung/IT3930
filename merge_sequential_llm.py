@@ -147,20 +147,20 @@ def train(args, lr, epochs, merged_train_loader, load_model_paths):
                 # x[0] shape: [batch_size, seq_len, hidden_size]
                 # seq_len varies per batch because we use dynamic padding.
                 seq_len = x.shape[2]  # dim-2 after permute: [num_views, batch, seq, hidden]
-                position_ids = torch.arange(seq_len, device=args.device).unsqueeze(0)  # [1, seq_len]
+                position_ids = torch.arange(seq_len, device=args.device).unsqueeze(0).expand(batch_size, -1)
                 _dummy = torch.zeros(batch_size, seq_len, hidden_size, device=args.device, dtype=torch.bfloat16)
                 position_embeddings = rotary_emb(_dummy, position_ids)  # (cos, sin)
                 del _dummy
 
                 # Forward through the merged decoder layer; pass position_ids and
                 # rotary embeddings (cos, sin) explicitly — Qwen3DecoderLayer requires them.
-                # Qwen3DecoderLayer.forward() returns a tuple; index [0] is the hidden state.
+                # The decoder layer returns a plain Tensor (not a tuple) — use it directly.
                 feature = merged_layer.get_merged_model()(
                     x[0],
                     attention_mask=None,
                     position_ids=position_ids,
                     position_embeddings=position_embeddings,
-                )[0].reshape(batch_size, -1)
+                ).reshape(batch_size, -1)
 
                 loss = 0
                 idx = source_loader.item()
@@ -171,7 +171,7 @@ def train(args, lr, epochs, merged_train_loader, load_model_paths):
                         attention_mask=None,
                         position_ids=position_ids,
                         position_embeddings=position_embeddings,
-                    )[0].reshape(batch_size, -1)
+                    ).reshape(batch_size, -1)
                 loss += F.mse_loss(feature, true_feature, reduction='none').sum()
                 total_loss += loss.detach().clone().cpu().item()
                 loss.backward()

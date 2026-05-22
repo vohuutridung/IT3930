@@ -209,7 +209,7 @@ def transform_data_loader_layer_pertask_llm(data_loader, merged_model, models, d
 
             # ── Dynamic rotary embeddings ──────────────────────────────────────
             batch_size, seq_len = x.shape[1], x.shape[2]
-            position_ids = torch.arange(seq_len, device=device).unsqueeze(0)  # [1, seq_len]
+            position_ids = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
             # _dummy must be COMPUTE_DTYPE so rotary_emb outputs cos/sin in the same dtype.
             _dummy = torch.zeros(batch_size, seq_len, hidden_size, device=device, dtype=COMPUTE_DTYPE)
             position_embeddings = rotary_emb(_dummy, position_ids)  # (cos, sin) in COMPUTE_DTYPE
