@@ -55,6 +55,8 @@ parser.add_argument('--val_shot', type=int, default=32, help='number of training
 parser.add_argument('--batch_size', type=int, default=16, help='batch size')
 parser.add_argument('--epochs', type=int, default=50, help='number of epochs')
 
+parser.add_argument('--granularity', type=str, default='elementwise', choices=['taskwise', 'layerwise', 'elementwise'], help='granularity of merging coefficients')
+
 parser.add_argument('--language_model_name', type=str, default='qwen3-1.7b', help='name of the language model')
 parser.add_argument('--merging_method_name', type=str, default='sequential_efficient')
 parser.add_argument('--gpu', type=int, default=0, help='number of gpu to use')
@@ -88,7 +90,6 @@ logger.setLevel(logging.DEBUG)
 
 
 def train(args, lr, epochs, merged_train_loader, load_model_paths):
-    # vohuutridung/qwen3-1.7b-legal-pretrain is the backbone model for all models
     num_layers = 28
 
     check_gpu()

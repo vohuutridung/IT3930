@@ -296,7 +296,7 @@ def load_merged_layers_llm(args, layer_idx):
         layer = load_part_model(args, f'model.layers.{layer_idx}', args.task_model_mapping_dict[dataset])
         layers.append(layer)
     
-    merged_layers = MergedModel(layer_pretrained, layers, 'elementwise')
+    merged_layers = MergedModel(layer_pretrained, layers, args.granularity)
     # merged_layers is a model structure without weights, layers are the same specific layer of finetuned models
     return merged_layers, layers
 
